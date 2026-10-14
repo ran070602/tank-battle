@@ -189,10 +189,13 @@
         // 地图数据: 0=空, 1=砖墙, 2=钢墙, 3=草地, 4=水, 5=基地
         let map = [];
 
+        // 玩家出生点：基地右侧的空地（与 40px 格子对齐，不能落在砖墙/钢墙/基地上）
+        const PLAYER_SPAWN = { x: 12 * TILE_SIZE, y: 13 * TILE_SIZE };
+
         // 玩家坦克
         let player = {
-            x: 400,
-            y: 480,
+            x: PLAYER_SPAWN.x,
+            y: PLAYER_SPAWN.y,
             width: 36,
             height: 36,
             speed: 3,
@@ -471,8 +474,51 @@
             return false;
         }
 
+        // 从目标点向外逐圈搜索一个不与障碍/边界重叠的格子
+        function findFreeSpawn(preferred, width, height) {
+            const startCol = Math.round(preferred.x / TILE_SIZE);
+            const startRow = Math.round(preferred.y / TILE_SIZE);
+            const maxRadius = Math.max(COLS, ROWS);
+
+            for (let radius = 0; radius <= maxRadius; radius++) {
+                for (let dy = -radius; dy <= radius; dy++) {
+                    for (let dx = -radius; dx <= radius; dx++) {
+                        if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue; // 只扫描当前这一圈
+                        const x = (startCol + dx) * TILE_SIZE;
+                        const y = (startRow + dy) * TILE_SIZE;
+                        if (x < 0 || y < 0) continue;
+                        if (x + width > canvas.width || y + height > canvas.height) continue;
+                        if (!checkMapCollision(x, y, width, height)) {
+                            return { x: x, y: y };
+                        }
+                    }
+                }
+            }
+            return { x: 0, y: 0 };
+        }
+
+        // 把玩家放回出生点（若出生点被占，则自动寻找最近的空地）
+        function resetPlayerPosition() {
+            const spawn = findFreeSpawn(PLAYER_SPAWN, player.width, player.height);
+            player.x = spawn.x;
+            player.y = spawn.y;
+            player.direction = 'up';
+        }
+
+        // 兜底：若坦克当前与障碍重叠（例如地图刷新后），先把它挪到最近的空地，避免永久卡死
+        function unstickTank(tank) {
+            if (!checkMapCollision(tank.x, tank.y, tank.width, tank.height)) return false;
+
+            const spot = findFreeSpawn({ x: tank.x, y: tank.y }, tank.width, tank.height);
+            tank.x = spot.x;
+            tank.y = spot.y;
+            return true;
+        }
+
         // 更新玩家
         function updatePlayer() {
+            unstickTank(player);
+
             let newX = player.x;
             let newY = player.y;
 
@@ -603,9 +649,7 @@
                             gameOver();
                         } else {
                             // 重置玩家位置
-                            player.x = 400;
-                            player.y = 480;
-                            player.direction = 'up';
+                            resetPlayerPosition();
                         }
                         return false;
                     }
@@ -649,8 +693,7 @@
                 spawnedEnemies = 0;
                 updateStats();
                 initMap();
-                player.x = 400;
-                player.y = 520;
+                resetPlayerPosition();
             }
         }
 
@@ -709,11 +752,8 @@
             bullets = [];
             explosions = [];
 
-            player.x = 400;
-            player.y = 520;
-            player.direction = 'up';
-
             initMap();
+            resetPlayerPosition();
             updateStats();
 
             gameRunning = true;
